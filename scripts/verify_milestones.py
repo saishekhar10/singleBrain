@@ -101,6 +101,79 @@ blank_set_is("M2", "message", ["L-018"])
 check("M2", "L-008 has a real, non-blank email", BY_ID["L-008"]["email"],
       BY_ID["L-008"]["email"] == "rickalvarez88@gmail.com")
 
+# Added 2026-07-31 with M2's three email-domain signal criteria, which claim
+# each signal fires on exactly one row (L-008 consumer webmail, L-013
+# disposable inbox, L-019 placeholder domain), that the three do not overlap,
+# and that the remaining 16 non-blank-email rows are False on all three. Those
+# claims rest on which domains the fixture actually contains, so the domains
+# are transcribed by hand below and re-derived from the file. Every list here
+# is hand-written on purpose: importing PERSONAL_EMAIL_DOMAINS or
+# DISPOSABLE_EMAIL_DOMAINS from triage.py would make this agree with the code
+# by construction, the same failure mode as parsing MILESTONES.md.
+CITED_EMAIL_DOMAINS = [
+    "apexdigitalpartners.com", "asdf.com", "brightcart.io", "continentalfoods.com",
+    "doylehvac.com", "example.de", "fastpay-billing.net", "finlitapp.com",
+    "gmail.com", "mailinator.com", "northpeakhealth.com", "okaforlogistics.com",
+    "pinnaclegrowth.co", "quorumdata.ai", "seedlingapp.com", "stateuniv.edu",
+    "tiendaverde.mx",
+]
+CONSUMER_WEBMAIL = {
+    "aol.com", "gmail.com", "gmx.com", "googlemail.com", "hotmail.com",
+    "icloud.com", "live.com", "mail.com", "me.com", "msn.com", "outlook.com",
+    "proton.me", "protonmail.com", "yahoo.com", "yandex.com", "zoho.com",
+}
+DISPOSABLE_INBOXES = {
+    "10minutemail.com", "guerrillamail.com", "mailinator.com", "mailinator.net",
+    "maildrop.cc", "sharklasers.com", "temp-mail.org", "tempmail.com",
+    "throwawaymail.com", "trashmail.com", "yopmail.com",
+}
+# Two rules, matching M2's criterion: RFC 6761 special-use TLDs plus .local,
+# and the two-label example.* convention. Written out here rather than reusing
+# triage.py's RESERVED_TLDS, same reason as the two lists above. Note that
+# example.de is NOT RFC 2606 reserved (that RFC names only example.com/.net/
+# .org); it is an ordinary ccTLD registration following the convention.
+RESERVED_SUFFIXES = {"example", "invalid", "local", "localhost", "test"}
+
+
+def is_placeholder_domain(domain):
+    labels = domain.split(".")
+    return labels[-1] in RESERVED_SUFFIXES or (
+        len(labels) == 2 and labels[0] == "example"
+    )
+
+
+domain_by_id = {
+    r["lead_id"]: r["email"].rsplit("@", 1)[-1].lower() for r in ROWS if r["email"]
+}
+actual_domains = sorted(set(domain_by_id.values()))
+check("M2", f"the {len(CITED_EMAIL_DOMAINS)} distinct email domains are as cited",
+      str(actual_domains), actual_domains == sorted(CITED_EMAIL_DOMAINS))
+
+webmail_rows = sorted(
+    lead_id for lead_id, domain in domain_by_id.items() if domain in CONSUMER_WEBMAIL
+)
+disposable_rows = sorted(
+    lead_id for lead_id, domain in domain_by_id.items() if domain in DISPOSABLE_INBOXES
+)
+placeholder_rows = sorted(
+    lead_id for lead_id, domain in domain_by_id.items() if is_placeholder_domain(domain)
+)
+
+check("M2", "L-008 is the fixture's only consumer-webmail row", str(webmail_rows),
+      webmail_rows == ["L-008"])
+check("M2", "L-013 is the fixture's only disposable-inbox row", str(disposable_rows),
+      disposable_rows == ["L-013"])
+check("M2", "L-019 is the fixture's only placeholder-domain row",
+      str(placeholder_rows), placeholder_rows == ["L-019"])
+
+flagged = set(webmail_rows) | set(disposable_rows) | set(placeholder_rows)
+check("M2", "the three domain signals do not overlap on any row",
+      f"{len(flagged)} rows flagged across 3 signals",
+      len(flagged) == len(webmail_rows) + len(disposable_rows) + len(placeholder_rows))
+check("M2", "16 non-blank-email rows are unflagged by all three signals",
+      f"{len(domain_by_id) - len(flagged)} rows",
+      len(domain_by_id) - len(flagged) == 16)
+
 # Negative cases: L-001's five criteria-feeding fields are all present.
 field_is("M2", "L-001", "email", "dana.reyes@brightcart.io")
 field_is("M2", "L-001", "website", "https://brightcart.io")

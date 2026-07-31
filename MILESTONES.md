@@ -6,7 +6,12 @@ objective-facts table produced in the read-only pass over
 fixtures/inbound_leads.csv, never the sealed manual-decisions table. That table
 is intentionally out of scope until M8.
 
-Status: draft, nothing implemented yet. No milestone below is marked done.
+Status: M1 is built and signed off as of 2026-07-31. M2 is built and its two
+parsing decisions are signed off, pending milestone sign-off; M3 onward are not
+started.
+PROGRESS.md is the authority on build status, this file on what each milestone
+has to satisfy. Several M2, M3, and M4 criteria below were corrected against the
+raw fixture on 2026-07-31; see PROGRESS.md for what changed and why.
 
 ## Global constraints (apply to every milestone below)
 
@@ -60,25 +65,34 @@ Status: draft, nothing implemented yet. No milestone below is marked done.
 
 **Goal:** classify each of the five criteria-feeding fields
 (`email`, `website`, `company`, `monthly_budget_usd`, `message`) as missing,
-malformed, unparseable, or OK, per Section 6's vocabulary note. `submitted_at`
-is validated for crash-safety only; it never feeds this five-field
-missing/malformed vocabulary (SPEC.md Section 5's scope note).
+malformed, unparseable, or OK, per Section 6's vocabulary note, and compute the
+three deterministic email-domain signals SPEC.md Section 5's design note
+assigns to a pre-Judge stage. `submitted_at` is validated for crash-safety
+only; it never
+feeds this five-field missing/malformed vocabulary (SPEC.md Section 5's scope
+note).
 
-**Two open parsing decisions this milestone must settle** (flagged per
-CLAUDE.md rather than silently picked):
+**Two parsing decisions, settled 2026-07-31.** Both were flagged open per
+CLAUDE.md rather than silently picked, and both are now signed off. What
+follows is the rule M2 implements, not a proposal awaiting an answer.
 
-1. **Budget shorthand (`15k` on L-017).** Proposal: `monthly_budget_usd`
-   parses only strings that are purely numeric (digits, optional decimal
-   point, optional leading `$`/sign/commas). Any letter suffix, including
-   `k`/`m` shorthand, makes it unparseable. Reasoning: supporting shorthand
-   opens a much larger surface (`$15,000`, `15K/mo`, `15,000 USD`, ...) that
-   a 20-row task doesn't need, and the fixture only exercises the single `k`
-   case. Under this rule L-017 parses as unparseable. Flagging for sign-off
-   before M2 is built, since it's a real design choice, not a detail.
+1. **Budget shorthand (`15k` on L-017): a `k`/`K` suffix is supported and
+   multiplies by 1000. Every other letter suffix is unparseable.**
+   `monthly_budget_usd` accepts optional surrounding whitespace, an optional
+   leading `$`, an optional sign, digits with optional thousands commas, an
+   optional single decimal point, and an optional trailing `k`/`K`. Anything
+   else, `m`/`M` included, is unparseable. **Under this rule L-017 parses to
+   15000**, not unparseable. This supersedes an earlier proposal that rejected
+   every letter suffix; that proposal was considered and not adopted, and its
+   text is removed rather than left standing beside the adopted rule. The
+   difference is not cosmetic: at 15000 L-017 clears Section 5 criterion 2's
+   provisional $2000 floor, so the row does not escalate on an unparseable
+   budget, Section 6's `budget_signal` override does not fire on it, and its
+   `data_completeness` is 1.0 rather than 0.8.
 2. **"Malformed" scope for free-text fields (`email`, `company`, `message`
-   on L-010; `message` on L-016).** Proposal: Validate checks *shape* only,
-   never plausibility or content quality. `email` malformed = not
-   `local@domain`-shaped (no `@`, empty local part, no dot in the domain
+   on L-010; `message` on L-016): shape only, never plausibility.** Validate
+   checks *shape*, never plausibility or content quality. `email` malformed =
+   not `local@domain`-shaped (no `@`, empty local part, no dot in the domain
    part). `company` malformed = empty or non-decodable, not "implausible."
    `message` malformed = corrupted encoding / binary noise / not decodable
    as text, not "vague" or "meaningless." Under this rule: L-010's
@@ -88,8 +102,29 @@ CLAUDE.md rather than silently picked):
    Validate's. L-010's message `asdfasdf` and L-016's HTML-wrapped message
    are both legible ASCII text, so **not** malformed either; L-016's HTML
    markup and L-010's meaninglessness are content-judgment questions for M5,
-   not data-shape questions for M2. Flagging this for sign-off since it
-   resolves three ambiguous cells from the objective-facts table at once.
+   not data-shape questions for M2. This resolves three ambiguous cells from
+   the objective-facts table at once.
+
+**Two consequences of decision 2, recorded because they shape what M2 can be
+tested against and what M6 must do with M2's output:**
+
+- **No field in any of the 20 fixture rows is malformed under this rule**
+  [observed 2026-07-31]. Every non-blank email is `local@domain.tld`-shaped,
+  every non-blank website is a well-formed `http(s)://` URL, and no company or
+  message carries control characters. Real rows exercise only OK, missing, and
+  unparseable, so the `malformed` branch has zero real-row coverage. M2 is one
+  of the three milestones where the global constraint above sanctions a
+  generalization test, and that exception is used here narrowly: synthetic
+  values are fed to the per-field checkers directly, never assembled into
+  fabricated lead rows, so no row-level behavior is ever asserted against
+  invented data.
+- **Blank and unparseable budgets stay distinct statuses in M2 and must be
+  collapsed by M6.** Validate reports `missing` for a blank
+  `monthly_budget_usd` and `unparseable` for a present-but-non-numeric one,
+  because that is the honest classification and discarding it here would lose
+  information. SPEC.md Section 6 collapses the two into a single
+  `budget_signal` override trigger, so M6, not M2, is where they become one
+  case. Carried into M6's acceptance criteria below.
 
 **Acceptance criteria, citing the objective-facts table:**
 - `email`: L-004 (blank) returns `missing`. L-008 is **not** a missing-email
@@ -102,20 +137,67 @@ CLAUDE.md rather than silently picked):
   `missing`.
 - `company`: L-002, L-008, L-015, L-019 (blank) return `missing`.
 - `monthly_budget_usd`: L-005's raw value `"we'll discuss"` returns
-  `unparseable`. L-017's raw value `"15k"` returns `unparseable` per the
-  proposal above (pending sign-off). L-002's `"0"` and L-019's `"0"` both
-  parse successfully to the number `0`, i.e. **not** missing or unparseable,
-  since a real numeric value was submitted, just a low one; that's a
-  threshold question for M5, not a data-quality question for M2.
+  `unparseable`. L-017's raw value `"15k"` returns OK and parses to the number
+  `15000`, per decision 1 above, settled 2026-07-31. L-002's `"0"` and
+  L-019's `"0"` both parse successfully to the number `0`, i.e. **not** missing
+  or unparseable, since a real numeric value was submitted, just a low one;
+  that's a threshold question for M5, not a data-quality question for M2.
 - `message`: L-018's empty string returns `missing`.
+- **Three deterministic email-domain signals**, which SPEC.md Section 5's
+  design note assigns to a pre-Judge stage so they do not become LLM-side
+  regexes in M5. Each is handed to the Judge as its own fact; the
+  verifiable-identity judgment built on them stays with the Judge.
+  - `email_domain_is_personal_provider`: personal or free consumer webmail.
+  - `is_disposable_email_domain`: throwaway / temporary inbox services.
+  - `is_reserved_or_example_domain`: documentation and testing placeholders.
+
+  **Kept separate, decided 2026-07-31, not merged into one "bad domain"
+  flag.** The three mean different things under Section 5 criterion 1's
+  unverifiable-versus-fabricated split, and the split is the whole point of
+  that criterion. Consumer webmail says a real person has no company domain to
+  offer, which is the textbook *unverifiable* case. A disposable inbox says
+  someone is deliberately avoiding contact. A reserved or example domain says
+  the value is placeholder text with no party behind it at all, which points at
+  *fabricated*. One merged flag would collapse an unverifiable signal and a
+  fabricated signal into the same bit and hand the Judge something it cannot
+  act on.
+
+  **All three are three-valued, not boolean:** `True`, `False`, and `None`
+  when there is no domain to classify at all (email missing or malformed).
+  `None` is not `False`. `False` asserts a domain was read and did not match,
+  which is a different fact from never having had one to read, and Section 6
+  already treats "nothing to classify" as its own case.
+
+  On this fixture, each signal fires on exactly one row and they do not overlap
+  [observed 2026-07-31]: L-008's `rickalvarez88@gmail.com` is the only consumer
+  webmail, L-013's `jblake@mailinator.com` the only disposable inbox, L-019's
+  `h.vogel@example.de` the only placeholder domain. L-004 (blank email) is
+  `None` on all three, and the remaining 16 rows are `False` on all three.
+
+  **`is_reserved_or_example_domain` needs two rules, not a reserved-name
+  list.** RFC 6761's special-use TLDs (`.test`, `.invalid`, `.example`,
+  `.localhost`, plus `.local` from RFC 6762) cover one half. But RFC 2606
+  reserves only the three literal names `example.com`, `example.net`, and
+  `example.org`, so L-019's `example.de` is **not** RFC-reserved at all; it is
+  an ordinary ccTLD registration following the same placeholder convention.
+  The second rule therefore matches a two-label domain whose first label is
+  `example`, which covers RFC 2606's three literals as a side effect. Capped at
+  two labels deliberately: `example.mycompany.com` is a real subdomain of a
+  real company, and separating the two in general needs a public suffix list,
+  which 20 rows do not justify. Known gap, accepted: a placeholder under a
+  multi-part suffix (`example.co.uk`) returns `False`.
 - **Crash-safety, not classification:** L-012's `submitted_at` value
   `"2026-13-45T99:99:00Z"` is invalid (month 13, day 45, hour 99). Validate
   must not raise an exception parsing it, and the row must continue through
   the pipeline unaffected; this field never triggers the five-field
   missing/malformed vocabulary regardless of how broken it is.
 - **Negative cases (must return OK, not malformed):** L-001's email/website/
-  company/budget/message; L-010's email, company, and message (per the
-  scope proposal above); L-016's message (per the scope proposal above).
+  company/budget/message; L-010's email, company, and message (per decision 2
+  above); L-016's message (per decision 2 above).
+- **Validate mutates nothing and skips nothing.** `validate()` returns a
+  separate result and leaves the ingested row dict byte-identical, extending
+  M1's guarantee through this stage, and it classifies every row rather than
+  dropping or short-circuiting any, per the locked Pipeline rule above.
 
 ---
 
@@ -320,6 +402,16 @@ output for a specific fixture row.
   corresponding sub-score is forced to `0.0` with the exact standardized
   reason string, regardless of what the simulated raw Judge response
   contained for that sub-field.
+- **Budget `missing` and `unparseable` must both fire the `budget_signal`
+  override.** Carried forward from M2's decision 2, settled 2026-07-31: M2
+  reports a blank budget as `missing` and a present-but-non-numeric one as
+  `unparseable`, deliberately keeping them distinct, and SPEC.md Section 6 is
+  equally deliberate that they collapse into one override trigger ("blank/
+  missing or malformed alike, one case, not two"). M6 is where that collapse
+  happens. Test both statuses separately and confirm each forces
+  `budget_signal` to `0.0` with the same standardized reason. A `website`
+  blank still does **not** fire its override, per Section 6; that asymmetry
+  between the two fields is intended, not an oversight.
 - **`data_completeness` formula:** given a simulated Validate output with 2
   of the 5 criteria-feeding fields incomplete (missing or malformed,
   excluding a blank `website` per Section 6's explicit exemption), confirm

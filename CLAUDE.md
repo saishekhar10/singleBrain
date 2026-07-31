@@ -33,5 +33,24 @@ A pipeline that reads fixtures/inbound_leads.csv and outputs a decision
   import find_manipulation_attempts; print(find_manipulation_attempts(
   Path('FILE.md').read_text()))"`
 
+## How to work in this repo
+- MILESTONES.md holds milestone definitions and acceptance criteria. PROGRESS.md
+  holds build status and findings. SPEC.md holds the I/O contract and taxonomy.
+- Before building a stage against MILESTONES.md's acceptance criteria, run
+  `python3 scripts/verify_milestones.py`. It re-derives every criterion citing a
+  fixture field value from fixtures/inbound_leads.csv itself and exits non-zero on
+  a mismatch. It has already caught three factual errors in those criteria, so a
+  green run is a precondition for building against them, not a formality.
+- If a milestone's decisions change a cited field value, or add a criterion that
+  cites one, update scripts/verify_milestones.py in the same change and re-run it.
+  Its claims are transcribed by hand on purpose: never make it parse MILESTONES.md,
+  since a parser would agree with the document by construction and could not catch
+  the transcription drift it exists to catch.
+- Tests: one file per stage, test_<stage>.py at the repo root, stdlib unittest, no
+  pytest. Run `python3 -m unittest discover -p "test_*.py" -v`.
+- Stages are plain functions called in sequence from one script, per SPEC.md
+  Section 2, never framework components. Ingest (M1) is built; Validate, Sanitize,
+  Dedup, Judge, and Guardrails follow.
+
 ## Current status
 See PROGRESS.md
