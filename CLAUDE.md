@@ -52,5 +52,24 @@ A pipeline that reads fixtures/inbound_leads.csv and outputs a decision
   Section 2, never framework components. Ingest (M1) is built; Validate, Sanitize,
   Dedup, Judge, and Guardrails follow.
 
+## Documented design decisions
+Calls that sit near a standing rule's boundary, recorded here so they are decisions
+on the record rather than something rediscovered as surprise behavior later.
+
+- **Sensitive-content detection is judgment-adjacent, and contained rather than
+  denied** (M3, settled 2026-07-31). Telling a business describing its own
+  regulatory context apart from a legal or compliance demand directed at Single
+  Grain puts a call near the judgment line into deterministic pattern code, which
+  the standing rule above would otherwise send to the LLM. It stays on the pattern
+  side because it keys on co-occurrence, a request verb with a personal-data object
+  or a legal citation with a demand, never on whether the request is reasonable.
+  Borderline phrasings will land wrong, and that is accepted rather than papered
+  over: a Sanitize miss is not the pipeline's final word, because the Judge reads
+  the message independently in M5 and can still escalate on its own reading, and
+  every row reaches the Judge per SPEC.md Section 1's locked Pipeline rule. The
+  tripwire: if this rule starts needing per-phrase exceptions to stay accurate,
+  that is the signal it has crossed into judgment and belongs in the Judge, not
+  here. Add the exception nowhere, raise it instead.
+
 ## Current status
 See PROGRESS.md

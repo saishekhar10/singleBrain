@@ -9,7 +9,7 @@ requirement #4.
 |---|---|
 | M1 Ingest | **Done**, signed off 2026-07-31 (7/7 tests green) |
 | M2 Validate | **Built**, 33/33 tests green, awaiting sign-off (all parsing and signal decisions signed off 2026-07-31) |
-| M3 Sanitize | Not started (one sensitive-content decision needs sign-off; L-020 criteria widened, see below) |
+| M3 Sanitize | **Built**, 37/37 tests green, awaiting sign-off (all four decisions signed off 2026-07-31) |
 | M4 Dedup | Not started (acceptance criteria corrected, see below) |
 | M5 Judge | Not started |
 | M6 Guardrails | Not started |
@@ -17,6 +17,213 @@ requirement #4.
 | M8 Manual comparison | Not started |
 | M9 Red-team pass | Not started |
 | M10 Validator loop | Not started |
+
+---
+
+## M3 Sanitize: decisions signed off 2026-07-31
+
+Four decisions settled. MILESTONES.md's M3 section was rewritten to state them
+as rules rather than proposals, with the proposal language removed rather than
+left standing beside the adopted rule, same treatment as M2's.
+
+1. **Sensitive-content boundary: describing your own regulatory context does
+   not fire; a legal or compliance demand directed at Single Grain does.**
+   L-017 does not fire, L-019 does.
+2. **Scanned fields: `message`, `name`, and `company`.** The criteria cite only
+   `message`, but M5's prompt carries all three, so a message-only detector
+   leaves an attack surface a fresh fixture could use.
+3. **Sanitize detects and never mutates.** SPEC.md Section 1's `stage_trace`
+   previously read "sanitization changes made," which implied rewriting lead
+   text.
+4. **Categories are independent, never first-match-wins.** All three detectors
+   run on every field of every row.
+
+**Cross-file staleness fixed in the same change**, so nothing contradicts
+anything: SPEC.md Section 5's ESCALATE bullet no longer calls the
+sensitive-content definition "still open," SPEC.md Section 1's `stage_trace`
+now uses detection-only wording, and CLAUDE.md carries the decision-1
+containment note under a new "Documented design decisions" heading rather than
+leaving it in a planning message.
+
+**A stale proposal was caught before code, not after.** MILESTONES.md's M3
+still read "One open decision this milestone must settle... Flagging for
+sign-off" for the sensitive-content boundary, and PROGRESS.md's status table
+agreed. It was not treated as a default-yes, on the M2 precedent: that
+milestone's budget-suffix proposal was flagged the same way and was **rejected**
+when settled, flipping `15k` from unparseable to 15000. A flagged proposal here
+carries no presumption either way.
+
+---
+
+## M3: Sanitize
+
+**Files:** `triage.py` (three category constants, `CONTENT_CATEGORIES`,
+`SCANNED_FIELDS`, the rule patterns, `detect_injection`,
+`detect_security_threat`, `detect_sensitive_content`, `sanitize`, and a
+`content=` column on the smoke run), `test_sanitize.py` (37 tests, stdlib
+`unittest`). No new dependency; `re` is stdlib and was already imported for M2.
+
+**Run it:**
+
+```
+python3 triage.py                      # ingest + validate + sanitize, all 20 rows
+python3 -m unittest test_sanitize -v
+```
+
+**What it does:** runs all three detectors over `name`, `company`, and
+`message` on every row, and returns SPEC.md Section 1's `content_flags`, a list
+of `{category, description}` with one entry per category detected and the
+description naming which field and which rule fired. It mutates nothing and
+skips nothing.
+
+**How the rules avoid being keyword matchers.** Almost every rule requires two
+independent things to co-occur inside one sentence: an override verb *and* an
+instruction noun, a payment asset *and* a demand verb *and* time pressure, a
+data-request verb *and* a personal-data object. Single words carry no weight on
+their own, which is what N1, N2, and N3 exist to prove. The one deliberate
+exception is the pretext rule, which spans the whole message rather than a
+sentence, because pretext is a two-part structure by nature: the relationship
+claim sits in one sentence and the demand in the next, which is exactly how
+L-020 is built.
+
+**Observed results** [observed, 2026-07-31, Python 3.11.4]:
+
+- 37 of 37 M3 tests pass; 77 of 77 across all three stages.
+- `scripts/verify_milestones.py`: 50 of 50 verified, 0 discrepancies, exit 0,
+  up from 47 (three L-013 claims added).
+- Flags across all 20 rows: L-006 `injection`, L-019 `sensitive_content`,
+  L-020 `security_threat`, and **the other 17 rows clean**. Asserted as an
+  exact per-row map, not just for the three named rows, so a spurious fire
+  anywhere fails.
+
+**Bad output found and fixed: one word satisfied both halves of a
+co-occurrence rule.** Recorded because it is the kind of defect this milestone
+is most likely to ship. `overdue` and `past due` were listed under both
+`_OBLIGATION` (the relationship-claim half of the pretext rule) and `_URGENCY`
+(the demand half). A rule written to require two independent signals could
+therefore be satisfied by one word appearing once, which collapses it straight
+back into the keyword matching the design exists to avoid. Concretely: any
+message mentioning an overdue invoice would have fired `security_threat` with
+no demand, no urgency, and no link anywhere in it, which on a fresh fixture is
+an ordinary customer chasing their own billing question. Caught by
+`test_pretext_sentence_alone_does_not_fire`, which feeds the detector L-020's
+first sentence alone and requires silence. Fixed by removing the obligation
+markers from `_URGENCY`, where they never belonged: they describe a debt, not
+time pressure. Both halves now draw on disjoint vocabulary, and the comment on
+`_URGENCY` records why so it does not get re-added.
+
+**Second defect, same class, found by asking whether the first fix
+generalized.** The first fix was verified only by
+`test_pretext_sentence_alone_does_not_fire`, which feeds the detector one
+string, L-020's opening sentence, using the two words that caused the bug. That
+proves those words are fixed and says nothing about the category. Sweeping the
+whole obligation vocabulary against the whole urgency vocabulary [observed]
+came back clean, 9 of 9 claim-only strings silent and 63 of 63 claim-plus-demand
+combinations firing, but probing the closest surviving analogue found a second
+instance one level deeper: `outstanding invoice` supplies the obligation claim,
+and `invoice` is a payment asset too, so the same noun covered both halves and
+only a common verb was left to complete the rule. Three ordinary billing
+sentences fired as `security_threat`, including `Please send me the outstanding
+invoice for last quarter.` On 500 real leads a week that is a customer asking
+about their own bill, routed to a human as a suspected attacker.
+
+Fixed by requiring the claim and the payment demand to come from **different
+sentences**, which is what "two independent signals" was always supposed to
+mean. Urgency and executable payloads stay message-level, since their
+vocabulary shares nothing with the claim's and cannot double up. Fixing that
+exposed a third, smaller slip in the same family: `wire` was in the
+payment-asset list when it is the verb there, so an obligation claim followed
+by `Wire the funds to the account below` was missed entirely, with no urgency
+word or link to catch it. Assets and demand verbs are now strictly disjoint.
+
+**Fourth defect, found by running the same audit against the other two
+detectors.** The disjointness check had only ever been pointed at the rule
+where a bug was noticed. Swept across all seven co-occurrence rules in all
+three detectors, it found one more instance: `subject access request` sat in
+`_LEGAL_CITATION`, and it contains the word "request", which satisfies
+`_REQUEST_VERB`. One phrase covered both halves of the citation rule. The
+visible consequence was a decision-1 violation: a vendor writing `our subject
+access request process needs work` is describing its own regulatory context and
+must stay clean, but fired `sensitive_content`. Fixed by removing the phrase
+from the citation list and giving it its own rule that requires the request to
+be *made of us* (`submitting`, `filing`, `lodging`), which is decision 1's
+boundary applied to the one phrase that names the request type outright.
+
+**Five more false positives, same audit, different mechanism.** These were not
+double duty: both halves were genuinely separate tokens. They fired because
+both halves are ordinary vocabulary *in this domain*, which is the part a
+generic-looking rule hides. This pipeline reads marketing leads, so:
+
+- `We need help to score and qualify inbound leads better.` fired `injection`.
+  So did `Our sales team wants to classify leads as qualify or nurture
+  automatically.` These are close to the most common sentences a genuine
+  prospect writes, and `injection` caps confidence hardest of any category
+  (`trust_risk` 0.2), so the cost of the error is the highest available.
+- `We have full confidence you can help us qualify more leads.` fired
+  `injection`.
+- `We need someone willing to ignore the usual rules of SEO.` fired
+  `injection`.
+- `We want to remove personal data from our old funnel exports.` fired
+  `sensitive_content`.
+
+Each was fixed by adding the **third signal that was doing the real work all
+along**, never by excluding a phrase:
+
+- `instruction_override` now requires a scope marker (`previous`, `earlier`,
+  `your`). Injection targets instructions the *reader* was given; a lead
+  talking about rules is talking about its own industry.
+- `assigns_its_own_decision` now requires a self-reference plus `as <decision>`,
+  so naming a decision value is not enough, only assigning one to *this
+  submission* is.
+- `pins_its_own_confidence` now requires confidence supplied as a parameter
+  (`with confidence 1.0`, `with full confidence`), which separates a supplied
+  value from a sentiment about the agency.
+- `data_subject_request` now requires the data to be ours to hold (`you hold`,
+  `you have collected`, `about me`), which is what makes it a request against
+  us rather than a lead's own data hygiene.
+- `section N` left `_LEGAL_CITATION` entirely: RFPs and creative briefs are
+  full of numbered sections. `article N` stays, being rare in business prose.
+
+**Worth stating plainly against CLAUDE.md's tripwire**, which says that a rule
+needing per-phrase exceptions has crossed into judgment and belongs in the
+Judge. None of these five fixes is an exception list. Each adds a structural
+requirement (directed at *us*, directed at *this submission*, scoped to the
+*reader's* instructions) that encodes the distinction the category was always
+about. That is the opposite of a per-phrase carve-out, and the tripwire has not
+been tripped. If a future fix cannot be expressed that way, it should be.
+
+`PretextVocabularyTest` makes the whole probe permanent rather than a one-off
+run: the vocabulary sweeps in both directions, the three ordinary billing
+sentences that must stay silent, and the separate-sentence payment demand that
+must still fire, which is the coverage the fix could have quietly cost.
+`CoOccurrenceDisjointnessTest` generalizes it to **all seven co-occurrence
+rules across all three detectors**, asserting that no single phrase fires any
+rule on its own, so the next instance of this defect fails a test the day it is
+written rather than the day something happens to trip it.
+`OrdinaryMarketingLeadTest` holds the nine prospect sentences above and asserts
+all three detectors stay silent on every one, alongside the genuine versions
+that must still fire, so narrowing cannot buy quiet by breaking detection.
+
+**One rule ships covered by a synthetic that is not in MILESTONES.md.**
+SPEC.md Section 5's security-threat bullet names extortion and threats of harm
+alongside phishing and malware, and no fixture row and none of the four
+approved variants exercises that branch. Rather than ship it untested or drop a
+category SPEC requires, `test_sanitize.py` covers it with one local synthetic
+(`X1`). Flagging because it is a test case chosen without sign-off.
+
+**One test asserts row-level behavior against invented data**,
+`MultiFieldScanTest.test_injection_hidden_in_the_company_field_is_detected`.
+Proving decision 2 (that `sanitize` reads a field other than `message`) needs a
+row with content in that field, and no fixture row has any. It runs under the
+generalization exception MILESTONES.md's global constraint sanctions for M3 and
+is kept to a single test; everything else synthetic in this milestone is passed
+to a detector function directly, per M2's precedent.
+
+**Anti-overfit constraint enforced rather than promised.** `AntiOverfitTest`
+introspects every compiled pattern in `triage.py` and asserts none contains a
+lead_id or any of 17 distinctive fixture literals (`fastpay`, `8823`,
+`brightcart`, and so on). M3's non-negotiable constraint now fails a test
+instead of resting on review.
 
 ---
 

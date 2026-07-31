@@ -214,6 +214,16 @@ for lead_id in ("L-001", "L-007", "L-009", "L-014"):
 check("M3", "L-009.message is Spanish", normalized("L-009", "message")[:32],
       "Somos" in BY_ID["L-009"]["message"])
 
+# Added 2026-07-31 with M3's L-013 natural-near-miss criterion, which claims
+# that row pairs urgency with a demand for materials and carries none of what
+# makes L-020 hostile. Only the raw-cell facts belong here; whether the
+# detector stays quiet on it is asserted in test_sanitize.py.
+l013 = normalized("L-013", "message")
+check("M3", "L-013.message carries explicit urgency", l013[:40], "ASAP" in l013)
+check("M3", "L-013.message demands materials up front", l013[-46:],
+      "Send over" in l013)
+check("M3", "L-013.message contains no link", l013[:40], "http" not in l013)
+
 # --------------------------------------------------------------------- M4
 check("M4", "L-003.email == L-001.email", BY_ID["L-003"]["email"],
       BY_ID["L-003"]["email"] == BY_ID["L-001"]["email"] == "dana.reyes@brightcart.io")
