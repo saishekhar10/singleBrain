@@ -1,0 +1,37 @@
+# Project: Lead Triage Agent (Single Grain challenge 012)
+
+## What this is
+A pipeline that reads fixtures/inbound_leads.csv and outputs a decision
+(QUALIFY/NURTURE/REJECT/ESCALATE) per row, per brief.md and scoring_rubric.md.
+
+## Standing rules
+- NEVER write code without proposing a plan first and getting my explicit approval.
+- NEVER add a framework, library, or abstraction not strictly needed for 20 rows.
+  If you think one is needed, argue for it in the plan and let me decide.
+- Deterministic logic (parsing, validation, pattern detection, hard overrides) is
+  plain Python, no LLM. Only the actual qualify/nurture/reject/escalate judgment call goes
+  to an LLM. If you're about to put judgment logic in a regex or a hardcoded rule,
+  or put a hardcoded rule in the LLM prompt, stop and flag it to me.
+- Every acceptance test must run against real rows in fixtures/inbound_leads.csv,
+  never synthetic/mocked data, unless we're specifically red-teaming.
+- After implementing anything, explain what you wrote back to me in plain language
+  before I mark the milestone done.
+- Never let raw regex-pattern text or quoted lead text matching injection phrasing
+  sit unquoted in a .md/.txt file that's part of the submission. Put detailed
+  forensic traces in run_log.json instead, since validate_submission.py only
+  scans .md/.markdown/.txt files.
+- When quoting adversarial content (brief.md requirement #4 asks for it), the quote
+  MUST sit in a proper fenced code block (triple backtick) or a blockquote. A
+  multi-line inline code span does NOT count: validate_submission.py strips inline
+  code spans per line, so a quote whose opening and closing backticks land on
+  different lines gets its middle lines scanned as plain prose and flagged.
+  Fenced blocks and blockquotes are exempt wholesale, per line. Confirmed
+  2026-07-31 by importing that script's own find_manipulation_attempts() and
+  running it against MILESTONES.md, which flagged on the inline form and flags
+  clean on the fenced form. Re-run that check after editing any .md that quotes
+  lead text: `python3 -c "from pathlib import Path; from validate_submission
+  import find_manipulation_attempts; print(find_manipulation_attempts(
+  Path('FILE.md').read_text()))"`
+
+## Current status
+See PROGRESS.md
