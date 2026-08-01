@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from triage import ingest  # noqa: E402
+from ingest import ingest  # noqa: E402
 
 FIXTURE = REPO_ROOT / "fixtures" / "inbound_leads.csv"
 
@@ -108,7 +108,7 @@ check("M2", "L-008 has a real, non-blank email", BY_ID["L-008"]["email"],
 # claims rest on which domains the fixture actually contains, so the domains
 # are transcribed by hand below and re-derived from the file. Every list here
 # is hand-written on purpose: importing PERSONAL_EMAIL_DOMAINS or
-# DISPOSABLE_EMAIL_DOMAINS from triage.py would make this agree with the code
+# DISPOSABLE_EMAIL_DOMAINS from validate.py would make this agree with the code
 # by construction, the same failure mode as parsing MILESTONES.md.
 CITED_EMAIL_DOMAINS = [
     "apexdigitalpartners.com", "asdf.com", "brightcart.io", "continentalfoods.com",
@@ -129,7 +129,7 @@ DISPOSABLE_INBOXES = {
 }
 # Two rules, matching M2's criterion: RFC 6761 special-use TLDs plus .local,
 # and the two-label example.* convention. Written out here rather than reusing
-# triage.py's RESERVED_TLDS, same reason as the two lists above. Note that
+# validate.py's RESERVED_TLDS, same reason as the two lists above. Note that
 # example.de is NOT RFC 2606 reserved (that RFC names only example.com/.net/
 # .org); it is an ordinary ccTLD registration following the convention.
 RESERVED_SUFFIXES = {"example", "invalid", "local", "localhost", "test"}
@@ -246,6 +246,31 @@ check("M4", "L-001 and L-005 emails differ",
 check("M4", "L-006 and L-020 emails differ",
       f"{BY_ID['L-006']['email']} vs {BY_ID['L-020']['email']}",
       BY_ID["L-006"]["email"] != BY_ID["L-020"]["email"])
+
+# Added 2026-08-01 with M4's five settled rules. Rule 3 makes "earlier" mean
+# first occurrence in file order, so which row of each pair is the earlier one
+# is now a cited fixture fact rather than an incidental detail, and rule 5's
+# known-untested status rests on no group exceeding two rows.
+ORDER = [r["lead_id"] for r in ROWS]
+for earlier, later in (("L-001", "L-003"), ("L-002", "L-015")):
+    check("M4", f"{earlier} precedes {later} in file order",
+          f"index {ORDER.index(earlier)} vs {ORDER.index(later)}",
+          ORDER.index(earlier) < ORDER.index(later))
+
+# M4's rule-3 criterion cites these timestamps to explain why the fixture
+# cannot discriminate file order from submitted_at order. Re-derived here so
+# a fixture that reverses a pair fails this script, not just the tests.
+for earlier, later in (("L-001", "L-003"), ("L-002", "L-015")):
+    check("M4", f"{earlier}.submitted_at precedes {later}.submitted_at",
+          f"{BY_ID[earlier]['submitted_at']} vs {BY_ID[later]['submitted_at']}",
+          BY_ID[earlier]["submitted_at"] < BY_ID[later]["submitted_at"])
+
+group_sizes = {value: non_blank.count(value) for value in distinct}
+largest = max(group_sizes.values())
+check("M4", "no email is shared by 3+ rows (largest group is 2)",
+      f"largest group {largest}, "
+      f"{sorted(v for v, n in group_sizes.items() if n > 1)}",
+      largest == 2)
 
 # --------------------------------------------------------------------- M5
 check("M5", "L-006 is the injection row reviewers check first",

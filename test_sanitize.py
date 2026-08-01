@@ -15,19 +15,29 @@ import re
 import unittest
 from pathlib import Path
 
-import triage
-from triage import (
+import dedup as dedup_module
+import ingest as ingest_module
+import sanitize as sanitize_module
+import validate as validate_module
+from constants import (
     CONTENT_CATEGORIES,
     INJECTION,
-    SCANNED_FIELDS,
     SECURITY_THREAT,
     SENSITIVE_CONTENT,
+)
+from ingest import ingest
+from sanitize import (
+    SCANNED_FIELDS,
     detect_injection,
     detect_security_threat,
     detect_sensitive_content,
-    ingest,
     sanitize,
 )
+
+# Every module a pattern could hide in, for AntiOverfitTest below. Listed
+# explicitly rather than discovered, so a new stage module is a deliberate
+# addition here rather than something the scan silently misses.
+STAGE_MODULES = (ingest_module, validate_module, sanitize_module, dedup_module)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "inbound_leads.csv"
 
@@ -400,9 +410,15 @@ class AntiOverfitTest(unittest.TestCase):
     )
 
     def compiled_patterns(self):
+        # Scans every stage module, not just Sanitize's. Before the 2026-08-01
+        # module split all 27 patterns lived in triage.py and this scan caught
+        # them all, including Validate's three; pointing it at one module
+        # afterward would have quietly dropped those while keeping the suite
+        # green, which is the one regression a passing test count would hide.
         return [
-            (name, value)
-            for name, value in vars(triage).items()
+            (f"{module.__name__}.{name}", value)
+            for module in STAGE_MODULES
+            for name, value in vars(module).items()
             if isinstance(value, re.Pattern)
         ]
 

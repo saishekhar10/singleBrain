@@ -11,7 +11,7 @@ is deliberately left untested at M1 rather than tested against a fake file.
 import unittest
 from pathlib import Path
 
-from triage import SCHEMA, ingest
+from ingest import SCHEMA, ingest
 
 FIXTURE = Path(__file__).parent / "fixtures" / "inbound_leads.csv"
 

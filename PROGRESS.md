@@ -8,15 +8,265 @@ requirement #4.
 | Milestone | Status |
 |---|---|
 | M1 Ingest | **Done**, signed off 2026-07-31 (7/7 tests green) |
-| M2 Validate | **Built**, 33/33 tests green, awaiting sign-off (all parsing and signal decisions signed off 2026-07-31) |
-| M3 Sanitize | **Built**, 37/37 tests green, awaiting sign-off (all four decisions signed off 2026-07-31) |
-| M4 Dedup | Not started (acceptance criteria corrected, see below) |
+| M2 Validate | **Done**, signed off 2026-07-31 (33/33 tests green; all parsing and signal decisions signed off same day) |
+| M3 Sanitize | **Done**, signed off 2026-07-31 (37/37 tests green; all four decisions signed off same day) |
+| M4 Dedup | **Built**, 33/33 tests green, awaiting sign-off (five rules signed off 2026-08-01) |
 | M5 Judge | Not started |
 | M6 Guardrails | Not started |
 | M7 Full run | Not started |
 | M8 Manual comparison | Not started |
 | M9 Red-team pass | Not started |
 | M10 Validator loop | Not started |
+
+---
+
+## Structural refactor: one module per stage, 2026-08-01
+
+Pure reorganization before M5 starts, no behavior change and no new logic.
+`triage.py` was 804 lines carrying M1 to M4; it is now a 64-line entry point
+that imports four stage modules and wires them in sequence.
+
+| File | Lines | Holds |
+|---|---|---|
+| `ingest.py` | 48 | `SCHEMA`, `EXTRA_FIELDS_KEY`, `ingest()` |
+| `constants.py` | 29 | the four status words, the three category names, `CONTENT_CATEGORIES` |
+| `validate.py` | 330 | M2, plus `DOMAIN_SIGNALS` |
+| `sanitize.py` | 274 | M3 |
+| `dedup.py` | 108 | M4 |
+| `triage.py` | 64 | imports, `DEFAULT_FIXTURE`, the `__main__` smoke run |
+
+Flat at the repo root, no package directory, no `__init__.py`, no import
+cycles: `validate` imports `ingest`, everything imports `constants`, `triage`
+imports the four stages. `python3 triage.py fixtures/inbound_leads.csv` is
+unchanged, and so is the `__main__` block's body.
+
+**Why `constants.py` exists at all**, since a file of seven strings needs a
+reason under the no-unnecessary-abstraction rule: SPEC.md Section 6 has M6
+reading Validate's field statuses and Sanitize's content categories back off
+their output. Without a shared home, Guardrails would import from Validate's or
+Sanitize's module to borrow a string, coupling stages that are meant to be
+independent. `CONTENT_CATEGORIES` lives there for the same reason, since M6's
+`trust_risk` priority reads exactly those three names. No logic is in that file.
+
+**Baseline recorded before the split, and matched after** [observed,
+2026-08-01, Python 3.11.4]. The bar was identical output, not a passing run:
+
+| | Before | After |
+|---|---|---|
+| `unittest discover -v` | 110 tests, 110 `ok`, exit 0 | 110 tests, 110 `ok`, exit 0 |
+| `scripts/verify_milestones.py` | 55/55, 0 discrepancies, 1 note, exit 0 | 55/55, 0 discrepancies, 1 note, exit 0 |
+| `python3 triage.py fixtures/...` | 20 rows, exit 0 | 20 rows, exit 0 |
+
+Verified by `diff` on the full verbose output of all three runs, not by
+comparing totals: every individual test name and every individual claim line
+matches, ignoring only unittest's timing line.
+
+**Code-move integrity checked independently of the tests.** Comparing the
+pre-split file against the six new ones as line multisets, ignoring module
+docstrings, imports, and the `# ---- M2/M3/M4` dividers: 568 code lines before,
+568 after, with exactly one line differing, a comment on `DOMAIN_SIGNALS` whose
+"the smoke run below" stopped being true when it moved to `validate.py`
+[observed]. No code line was added, dropped, or altered.
+
+**The one way this refactor could have passed its own acceptance bar while
+regressing.** `AntiOverfitTest.compiled_patterns()` scanned `vars(triage)`,
+which before the split held all 27 compiled patterns, including Validate's
+`_EMAIL_SHAPE`, `_URL_SCHEME`, and `_BUDGET_SHAPE`. Repointing it at
+`sanitize.py` alone would have left the suite at 110 green tests while silently
+dropping Validate's three from anti-overfit coverage. It now scans all four
+stage modules from an explicit `STAGE_MODULES` list, and the pattern *set*, not
+just the count, was compared before and after: 27 both times, identical names,
+none missing [observed]. The existing "more than 5" floor stays as the
+assertion; 27 is deliberately not pinned, since M5 and M6 will add real patterns
+and a fixed number would just need upkeep.
+
+**Two signed-off documentation lines corrected, not silently edited.** SPEC.md
+Section 2's Non-Goals bullet and CLAUDE.md's matching rule both read "plain
+functions called in sequence from one script", which stopped being true here.
+Both now say "from a single entry point" and carry a dated note saying what
+changed and why. The Non-Goal itself is unchanged: still plain functions, still
+no framework, no orchestration library, nothing passing messages between
+components. CLAUDE.md's cross-reference to SPEC.md Section 2 was checked at the
+same time and was already correct, so it was left alone.
+
+---
+
+## M4 Dedup: rules signed off 2026-08-01
+
+Five rules settled. MILESTONES.md's M4 section was rewritten to state them as
+rules rather than proposals, same treatment M2's and M3's got, and the doc pass
+ran as its own step before any code was written.
+
+1. **Match key: `strip()` then lowercase, together**, over the whole address
+   rather than the domain alone.
+2. **Only `ok`-status emails participate in matching.** `missing` and
+   `malformed` both yield `match_key = None`, and a `None` matches nothing,
+   including another `None`. A data-quality gate, kept separate from rule 1's
+   string normalization.
+3. **"Earlier" means first occurrence in file order, never `submitted_at`.**
+   M2 already declared that field unreliable for decisions and L-012's own
+   value proves why; letting it order Dedup would hand it back a role the
+   pipeline deliberately stripped from it everywhere else.
+4. **Group membership is symmetric.** L-001 gets `linked_lead_ids: ['L-003']`,
+   not just the reverse, so the earlier row is not forced to decide blind on
+   information the pipeline already holds. Whether it *should* act on that is
+   left to M5/M6.
+5. **A group of 3+ rows sharing a key all link to the single first
+   occurrence, not chained pairwise.** A star, not a chain, and not a clique:
+   later members link to the first occurrence and not to each other, because
+   what rule 4 is for is giving the first occurrence visibility into
+   everything downstream of it.
+
+**Cross-file staleness fixed in the same pass.** SPEC.md Section 5's open flag
+on Dedup match confidence (`SPEC.md:171`) is resolved rather than left standing:
+matching is exact, so confidence stops being a dimension of it at all, which is
+why the question is answered by removing it rather than by picking a threshold.
+Two neighbouring lines went stale the moment rule 4 was adopted and were
+corrected with it: Section 5 said Dedup "flags a row as linked to an earlier
+`lead_id`" and required the `reason` to name "the earlier `lead_id`", both of
+which are only half true once links are symmetric, since a first-occurrence row
+has no earlier row to name. MILESTONES.md's header status paragraph and its
+sanctioned-generalization list (now `M2, M3, M4, M9`, with M4's narrow scope
+written into the bullet) were updated in the same pass.
+
+**One thing this milestone deliberately did not do:** the `lead_id` uniqueness
+check SPEC.md Section 1 assigns to the Dedup stage. No M4 criterion covers it,
+so it was left out rather than folded in quietly. Deferred to M5/M7 and
+recorded under "Carried into M5" below, which is its durable home.
+
+---
+
+## M4: Dedup
+
+**Files:** `dedup.py` (`_match_key`, `dedup`, `dedup_stage_trace`), a `linked=`
+column on `triage.py`'s smoke run, `test_dedup.py` (33 tests, stdlib
+`unittest`). No new dependency; `dedup` is plain dict-and-list work.
+
+**Run it:**
+
+```
+python3 triage.py                      # ingest + validate + sanitize + dedup
+python3 -m unittest test_dedup -v
+```
+
+**What it does:** computes a match key per row from `email` (rules 1 and 2),
+groups rows that share a non-`None` key, and returns one result per row in file
+order carrying `match_key`, `is_duplicate`, `first_occurrence_lead_id`,
+`linked_lead_ids`, and `linked_rows`. It mutates nothing and drops nothing:
+duplicates do not collapse, every row keeps its own result, and every row still
+reaches the Judge per the locked Pipeline rule.
+
+**The two-shape return, decided rather than defaulted.** `linked_rows` carries
+full row copies, not a curated subset of fields, so M5 can compare whatever it
+turns out to need without M4 having pre-decided what matters. `stage_trace` gets
+the thin view instead, via `dedup_stage_trace`, which is every field except
+`linked_rows`: copying whole input rows into run_log.json would duplicate the
+input record without adding a fact.
+
+**Observed results** [observed, 2026-08-01, Python 3.11.4]:
+
+- 33 of 33 M4 tests pass; 110 of 110 across all four stages.
+- `scripts/verify_milestones.py`: **55 of 55 verified, 0 discrepancies, 1 note,
+  exit 0**, up from 50 (five added: file order on both pairs, `submitted_at`
+  order on both pairs, and largest-group-is-2).
+- Links across all 20 rows: L-001 ↔ L-003, L-002 ↔ L-015, and **the other 16
+  rows carry no link**. Asserted as an exact per-row map, so a spurious link
+  anywhere fails.
+- L-004 is the only row with `match_key = None`; the other 19 rows carry a key,
+  17 of them distinct.
+
+**A gap found by mutation testing, not by reasoning about the code, and then
+closed.** Each of five deliberate breakages was applied to a scratch copy and
+the suite re-run [observed]. Four went red where they should: one-directional
+links (3 failures), ordering groups by `submitted_at` (1), dropping `strip()`
+(2), dropping `lower()` (3). The fifth did not. **Deleting rule 2's `None`
+guard from `dedup` entirely left all 27 tests green.** The cause was a fixture
+property, not a missing assertion: L-004 is the only keyless row, so a group
+built from `None` keys has exactly one member and produces no link either way.
+No test written against these 20 rows as they stand can tell the guard from its
+absence.
+
+The untested behavior was not a corner case, which is what justified acting
+rather than filing it. On a fresh batch with several blank emails, an absent
+guard links every blank-email row into one false duplicate group, and those are
+precisely the rows already carrying a data-quality problem.
+
+**Closed by a second, separate generalization exception, signed off
+2026-08-01.** Two real fixture rows run through the real `dedup()` with a
+**simulated** Validate email status of `missing` or `malformed`. What is
+synthetic is the status handed to the stage, which isolates `dedup()`'s
+bucketing from whether Validate would really call those emails unusable; the
+rows are unmodified fixture rows, and nothing fabricated is presented as real
+fixture data. Same precedent as M6's simulated Judge output. It grants nothing
+to rules 1 and 2's existing `_match_key()` scope, which is unchanged, and the
+scope note sits in `NoneKeyBucketingTest`'s docstring so the boundary travels
+with the code rather than living in this file alone.
+
+`NoneKeyBucketingTest` covers the sharpest case (two rows that really do share
+an address, kept apart only by the simulated status), two rows with different
+addresses, a simulated row against the fixture's real keyless L-004, and three
+unusable rows at once, which is the blank-email batch that motivated the
+exception. One test guards the helper itself: the real L-001/L-003 and
+L-002/L-015 pairs must still link, so a green result cannot come from having
+broken `dedup`'s input.
+
+**Re-mutated to confirm the new tests actually bite** [observed, 2026-08-01]:
+deleting the guard again now fails **7 assertions across 4 tests**, where before
+it failed none. The guard is also written structurally rather than as a later
+filter, `None` keys never entering `groups` at all, so the code states the rule
+independently of the test that now pins it.
+
+**Rule 3 is checked structurally, because the fixture cannot check it.** On both
+duplicate pairs `submitted_at` runs in the same direction as file order (L-001
+09:14 before L-003 13:40; L-002 on 06-01 before L-015 on 06-05) [observed], so
+an implementation that ordered groups by timestamp passes every data test in the
+file. `FileOrderTest` therefore asserts that neither `dedup` nor `_match_key`
+reads that field at all, following M3's AntiOverfitTest precedent, and separately
+asserts the fixture property itself so a future fixture that reverses a pair
+fails loudly instead of quietly leaving the structural test as the only evidence.
+Both timestamp claims are now in the verifier as well.
+
+**Two tests exist for defects that would otherwise be invisible.**
+`test_misaligned_input_raises_rather_than_truncating` covers the alignment
+between `rows` and `validations`: `zip()` would silently truncate to the shorter
+list, which in this pipeline means dropping rows before the Judge, so `dedup`
+raises instead. `test_linked_rows_are_copies` mutates a returned row and asserts
+the fixture row is untouched, since `linked_rows` handing out live references
+would let a later stage edit the input record the run log is supposed to
+preserve.
+
+**Rules 1 and 2 use the generalization exception at M2's narrow scope**:
+synthetic values handed to `_match_key()` directly, never assembled into
+fabricated lead rows. Necessary because both duplicate pairs are byte-identical,
+so no real row varies in case or whitespace, and no fixture email is `malformed`.
+
+**One known-untested item remains: rule 5's 3+ group.** The fixture's largest
+shared-key group is two rows, so star-versus-chain is unobservable, and
+observing it needs a fabricated third row, which neither sanctioned exception
+permits. Recorded as an accepted gap rather than closed.
+
+---
+
+## Carried into M5
+
+- **Whatever consumes `linked_rows` must do the consistent-versus-conflicting
+  comparison inside the model's own reasoning, not in a helper function.**
+  Comparing two rows' budget, company, and ask to decide whether they confirm
+  or contradict each other is judgment, and a helper that pre-computed it would
+  quietly recreate the judgment-in-pattern-code problem M4 avoided by leaving
+  that call out of Dedup. SPEC.md Section 5's Duplicate rows bullets are the
+  Judge's criteria, not Dedup's, and they stay that way.
+- The `reason` on a linked row must name the linked `lead_id` explicitly, per
+  SPEC.md Section 5. A first-occurrence row names the later `lead_id`(s) linked
+  to it, since it has no earlier one to name.
+- **`lead_id` uniqueness is unowned and needs a home in M5 or M7.** SPEC.md
+  Section 1's schema table assigns the check to the Dedup stage, but M4's goal
+  is email linking and no M4 criterion covers it, so it was deliberately left
+  out rather than folded in quietly (settled 2026-08-01). All 20 lead_ids are
+  distinct in this fixture [observed], so nothing rides on it today, and
+  `dedup()` keys rows by position rather than by `lead_id`, so a duplicate one
+  would not corrupt linking. Written down here rather than left in chat so it
+  has a durable owner by the time M7 assembles the full run.
 
 ---
 
@@ -57,11 +307,12 @@ carries no presumption either way.
 
 ## M3: Sanitize
 
-**Files:** `triage.py` (three category constants, `CONTENT_CATEGORIES`,
-`SCANNED_FIELDS`, the rule patterns, `detect_injection`,
-`detect_security_threat`, `detect_sensitive_content`, `sanitize`, and a
-`content=` column on the smoke run), `test_sanitize.py` (37 tests, stdlib
-`unittest`). No new dependency; `re` is stdlib and was already imported for M2.
+**Files:** `sanitize.py` (`SCANNED_FIELDS`, the rule patterns,
+`detect_injection`, `detect_security_threat`, `detect_sensitive_content`,
+`sanitize`), `constants.py` (the three category names and
+`CONTENT_CATEGORIES`), a `content=` column on `triage.py`'s smoke run,
+`test_sanitize.py` (37 tests, stdlib `unittest`). No new dependency; `re` is
+stdlib and was already imported for M2.
 
 **Run it:**
 
@@ -220,10 +471,12 @@ is kept to a single test; everything else synthetic in this milestone is passed
 to a detector function directly, per M2's precedent.
 
 **Anti-overfit constraint enforced rather than promised.** `AntiOverfitTest`
-introspects every compiled pattern in `triage.py` and asserts none contains a
-lead_id or any of 17 distinctive fixture literals (`fastpay`, `8823`,
-`brightcart`, and so on). M3's non-negotiable constraint now fails a test
-instead of resting on review.
+introspects every compiled pattern in all four stage modules (27 today: 24 in
+`sanitize.py`, 3 in `validate.py`) and asserts none contains a lead_id or any
+of 17 distinctive fixture literals (`fastpay`, `8823`, `brightcart`, and so
+on). M3's non-negotiable constraint now fails a test instead of resting on
+review. It scanned `triage.py` alone until the 2026-08-01 module split; see
+that entry for why widening the scan was load-bearing rather than cosmetic.
 
 ---
 
@@ -298,12 +551,12 @@ in the verifier would blur what that script is for.
 
 ## M2: Validate
 
-**Files:** `triage.py` (the four status constants, `CRITERIA_FIELDS`,
-`DOMAIN_SIGNALS`, three domain lists, five per-field checkers,
-`validate_budget`, the three domain-signal functions over one `_email_domain`
-helper, `check_submitted_at`, `validate()`, and an extended `__main__` smoke
-run), `test_validate.py` (33 tests, stdlib `unittest`). No new dependency;
-`re`, `unicodedata`, and `datetime` are stdlib.
+**Files:** `validate.py` (`CRITERIA_FIELDS`, `DOMAIN_SIGNALS`, three domain
+lists, five per-field checkers, `validate_budget`, the three domain-signal
+functions over one `_email_domain` helper, `check_submitted_at`, `validate()`),
+`constants.py` (the four status constants), an extended `__main__` smoke run in
+`triage.py`, `test_validate.py` (33 tests, stdlib `unittest`). No new
+dependency; `re`, `unicodedata`, and `datetime` are stdlib.
 
 **Run it:**
 
@@ -362,8 +615,9 @@ and nothing in the script covered that, so the 17 distinct domains are now
 transcribed by hand and re-derived from the file, alongside per-signal checks.
 Every list there is hand-written, including a second copy of the placeholder
 rule: importing `PERSONAL_EMAIL_DOMAINS`, `DISPOSABLE_EMAIL_DOMAINS`, or
-`RESERVED_TLDS` from `triage.py` would make the script agree with the code by
-construction, which is the same failure as parsing MILESTONES.md.
+`RESERVED_TLDS` from `validate.py` (`triage.py` before the 2026-08-01 split)
+would make the script agree with the code by construction, which is the same
+failure as parsing MILESTONES.md.
 
 **Correction: `example.de` is not an RFC 2606 reserved domain.** Recorded
 because it changed the implementation, not only the wording. An earlier note in
@@ -398,8 +652,9 @@ here for the same reason M1 left its header-mismatch `ValueError` untested.
 
 ## M1: Ingest
 
-**Files:** `triage.py` (`SCHEMA`, `ingest()`, a `__main__` smoke run),
-`test_ingest.py` (7 tests, stdlib `unittest`).
+**Files:** `ingest.py` (`SCHEMA`, `EXTRA_FIELDS_KEY`, `ingest()`), the
+`__main__` smoke run in `triage.py`, `test_ingest.py` (7 tests, stdlib
+`unittest`).
 
 **Run it:**
 

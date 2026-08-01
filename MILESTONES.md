@@ -6,9 +6,9 @@ objective-facts table produced in the read-only pass over
 fixtures/inbound_leads.csv, never the sealed manual-decisions table. That table
 is intentionally out of scope until M8.
 
-Status: M1 is built and signed off as of 2026-07-31. M2 is built and its two
-parsing decisions are signed off, pending milestone sign-off; M3 onward are not
-started.
+Status: M1, M2, and M3 are built and signed off as of 2026-07-31. M4's five
+rules are settled as of 2026-08-01 and the M4 section below states them; the
+stage itself is not yet built. M5 onward are not started.
 PROGRESS.md is the authority on build status, this file on what each milestone
 has to satisfy. Several M2, M3, and M4 criteria below were corrected against the
 raw fixture on 2026-07-31; see PROGRESS.md for what changed and why.
@@ -23,8 +23,12 @@ raw fixture on 2026-07-31; see PROGRESS.md for what changed and why.
   library, no retry/backoff infrastructure, no UI. (SPEC.md Section 2)
 - Every acceptance test runs against real rows in fixtures/inbound_leads.csv,
   never synthetic or mocked data, except where a milestone explicitly calls
-  for a red-team / generalization test (M2, M3, M9). That is the one
-  CLAUDE.md-sanctioned exception. (CLAUDE.md)
+  for a red-team / generalization test (M2, M3, M4, M9). That is the one
+  CLAUDE.md-sanctioned exception. M4 joined this list on 2026-08-01 with two
+  narrow exceptions, stated in full in its own section: synthetic values
+  handed to `_match_key()` directly, and a simulated Validate status on real
+  fixture rows to isolate `dedup()`'s bucketing. Neither permits a fabricated
+  lead row, and neither is a general licence for the milestone. (CLAUDE.md)
 - Pipeline rule, locked: every row reaches the Judge (M5). No deterministic
   stage (Validate, Sanitize, Dedup) may pre-emptively skip or short-circuit a
   row before the Judge call runs. Guardrails (M6) runs after the Judge and may
@@ -380,24 +384,103 @@ N3: We're a fintech lender, so every landing page has to clear our own legal tea
 
 ## M4: Dedup
 
-**Goal:** link rows by exact `email` match. Fuzzy/similarity matching is
-explicitly out of scope for M4 (SPEC.md Section 5 leaves that "an M2
-question" unresolved, but this milestone only claims exact-match, per the
-scope given for this milestone).
+**Goal:** link rows that share an `email`, on an exact match of a normalized
+key. Fuzzy or similarity matching is out of scope for M4. SPEC.md Section 5
+previously left the matching logic open; it no longer does, and the rules
+below are what settled it.
+
+**Rules, settled 2026-08-01.** Stated here as rules rather than proposals,
+same treatment M2's and M3's decisions got.
+
+1. **Match key: `strip()` then lowercase, together.** Both operations, on the
+   whole address rather than the domain alone.
+2. **Only `ok`-status emails participate in matching at all.** A `missing`
+   or a `malformed` email yields `match_key = None`, and a `None` key never
+   matches anything, *including another `None`*. This is a data-quality
+   gate, separate from rule 1's string normalization: rule 1 decides what
+   two usable addresses have to look like to be the same, rule 2 decides
+   which addresses are usable in the first place.
+3. **"Earlier" means first occurrence in file order, never `submitted_at`.**
+   M2 already declared `submitted_at` unreliable for decisions, and L-012's
+   own value (`2026-13-45T99:99:00Z`) is the proof of why. Letting it order
+   Dedup would hand that field a role the pipeline deliberately stripped
+   from it everywhere else.
+4. **Group membership is symmetric.** L-001 gets `linked_lead_ids:
+   ['L-003']`, not just the reverse, so the earlier row is not forced to
+   decide blind on information the pipeline already holds. Whether the
+   earlier row *should* act on that is left to M5/M6 and is deliberately
+   not decided here.
+5. **A group of 3+ rows sharing a key all link to the single first
+   occurrence, not chained pairwise.** The link structure is a star centered
+   on the first occurrence, not a chain through each preceding member.
 
 **Acceptance criteria, citing the objective-facts table:**
-- L-003's email `dana.reyes@brightcart.io` matches L-001's exactly; Dedup
-  links L-003 → L-001.
-- L-015's email `marcus.lee.2027@stateuniv.edu` matches L-002's exactly;
-  Dedup links L-015 → L-002.
-- L-004 (blank email) does not spuriously match anything; a blank field is
-  never treated as a matching value. Corrected against the raw fixture
-  2026-07-31: L-004 is the only blank-email row. L-008 has a real, distinct
-  address and is an ordinary non-matching value here, not a blank.
+- L-003's email `dana.reyes@brightcart.io` matches L-001's exactly, and
+  L-001 is the earlier row by file order (rule 3). Dedup links the two
+  symmetrically per rule 4: L-003's `linked_lead_ids` is `['L-001']` and
+  L-001's is `['L-003']`.
+- L-015's email `marcus.lee.2027@stateuniv.edu` matches L-002's exactly, and
+  L-002 is the earlier row by file order. Same symmetric pair: L-015 →
+  `['L-002']`, L-002 → `['L-015']`.
+- L-004 (blank email) gets `match_key = None` per rule 2 and links to
+  nothing; a blank field is never treated as a matching value. Corrected
+  against the raw fixture 2026-07-31: L-004 is the only blank-email row.
+  L-008 has a real, distinct address and is an ordinary non-matching value
+  here, not a blank.
 - No false positive among the 17 distinct, non-blank email values (19
   non-blank rows; the two duplicate pairs above account for 4 of those rows
   sharing 2 values). E.g. L-001 and L-005 are not linked; L-006 and L-020
-  are not linked.
+  are not linked. Stated as an exact per-row map: the 16 rows outside the
+  two pairs have empty `linked_lead_ids`, so a spurious link anywhere fails.
+- All 20 rows appear in Dedup's output, and duplicates do not collapse into
+  one another. Linking annotates a row; it never removes one, per the
+  locked Pipeline rule.
+- **Rules 1 and 2 are checked at the sanctioned generalization scope**
+  (see Global constraints): synthetic values handed to `_match_key()`
+  directly, never assembled into fabricated rows. Necessary because the
+  fixture cannot exercise either rule. Both duplicate pairs are
+  byte-identical, so no real row varies in case or surrounding whitespace,
+  and no fixture email is `malformed` under M2's shape rule, which
+  `test_no_fixture_field_is_malformed` already asserts. Rule 1 is checked
+  by feeding case and whitespace variants; rule 2 by feeding a missing and
+  a malformed value and requiring `None` from each.
+- **Rule 2's second half, that a `None` key matches nothing including
+  another `None`, is checked under a second and separate exception**
+  sanctioned for this milestone alone: two *real* fixture rows are run
+  through the real `dedup()` with a **simulated** Validate email status of
+  `missing` or `malformed`. What is synthetic is the status handed to the
+  stage, isolating `dedup()`'s bucketing; the rows themselves are unmodified
+  fixture rows, nothing fabricated is presented as real fixture data, and
+  this exception grants nothing to rules 1 and 2's `_match_key()` scope
+  above, which stays as stated. Same precedent as M6's simulated Judge
+  output. Required because the fixture has exactly one genuinely keyless row,
+  so a `None` bucket has one member and the guard cannot be told from its
+  absence; confirmed by mutation, below. The check covers two unusable rows
+  carrying identical email text, two carrying different text, and one
+  simulated row against the fixture's real keyless row.
+- Rule 3 gets a structural check rather than a data one: the fixture cannot
+  distinguish it from a `submitted_at` rule, because on both duplicate pairs
+  the timestamps run in the same direction as file order. The test asserts
+  instead that neither `dedup` nor `_match_key` reads that field at all,
+  following M3's AntiOverfitTest precedent of checking the mechanism
+  directly, and asserts the fixture property itself so a future fixture that
+  reverses a pair fails loudly rather than quietly making the structural
+  test the only evidence.
+
+**Known untested, documented rather than covered:** rule 5's 3+ group. The
+fixture's largest shared-key group is two rows, so the star-versus-chain
+distinction is unobservable here, and observing it needs a fabricated third
+row, which neither exception above permits. The rule is stated so the
+implementation is written against it deliberately, and it is recorded here as
+an accepted gap.
+
+**Rule 2's `None` guard was on this list and came off it**, recorded because
+of how it got there. Deleting the guard from `dedup` left all 27 M4 tests
+green [observed, 2026-08-01], found by mutating the implementation rather
+than by reading it. The uncovered behavior was not a corner case: a fresh
+batch with several blank emails would have linked every one of them into a
+single false duplicate group. That is what justified the second exception
+above rather than filing the gap and moving on.
 
 ---
 

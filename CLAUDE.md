@@ -48,9 +48,15 @@ A pipeline that reads fixtures/inbound_leads.csv and outputs a decision
   the transcription drift it exists to catch.
 - Tests: one file per stage, test_<stage>.py at the repo root, stdlib unittest, no
   pytest. Run `python3 -m unittest discover -p "test_*.py" -v`.
-- Stages are plain functions called in sequence from one script, per SPEC.md
-  Section 2, never framework components. Ingest (M1) is built; Validate, Sanitize,
-  Dedup, Judge, and Guardrails follow.
+- Stages are plain functions called in sequence from a single entry point, per
+  SPEC.md Section 2, never framework components. One module per stage at the repo
+  root (ingest.py, validate.py, sanitize.py, dedup.py), constants.py holding only
+  the vocabulary stages share, and triage.py wiring them together and owning the
+  `__main__` smoke run. Flat files, no package directory, no __init__.py.
+  Corrected 2026-08-01 alongside SPEC.md Section 2's matching line: this bullet
+  read "from one script" until triage.py was split. Only where the functions live
+  changed; the rule itself did not. Ingest, Validate, Sanitize, and Dedup (M1-M4)
+  are built; Judge and Guardrails follow.
 
 ## Documented design decisions
 Calls that sit near a standing rule's boundary, recorded here so they are decisions

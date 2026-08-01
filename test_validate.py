@@ -19,15 +19,12 @@ import copy
 import unittest
 from pathlib import Path
 
-from triage import (
+from constants import MALFORMED, MISSING, OK, UNPARSEABLE
+from ingest import ingest
+from validate import (
     CRITERIA_FIELDS,
     DOMAIN_SIGNALS,
-    MALFORMED,
-    MISSING,
-    OK,
-    UNPARSEABLE,
     email_domain_is_personal_provider,
-    ingest,
     is_disposable_email_domain,
     is_reserved_or_example_domain,
     validate,
