@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from ingest import ingest  # noqa: E402
+from pipeline.ingest import ingest  # noqa: E402
 
 FIXTURE = REPO_ROOT / "fixtures" / "inbound_leads.csv"
 
@@ -108,7 +108,7 @@ check("M2", "L-008 has a real, non-blank email", BY_ID["L-008"]["email"],
 # claims rest on which domains the fixture actually contains, so the domains
 # are transcribed by hand below and re-derived from the file. Every list here
 # is hand-written on purpose: importing PERSONAL_EMAIL_DOMAINS or
-# DISPOSABLE_EMAIL_DOMAINS from validate.py would make this agree with the code
+# DISPOSABLE_EMAIL_DOMAINS from pipeline/validate.py would make this agree with the code
 # by construction, the same failure mode as parsing MILESTONES.md.
 CITED_EMAIL_DOMAINS = [
     "apexdigitalpartners.com", "asdf.com", "brightcart.io", "continentalfoods.com",
@@ -129,7 +129,7 @@ DISPOSABLE_INBOXES = {
 }
 # Two rules, matching M2's criterion: RFC 6761 special-use TLDs plus .local,
 # and the two-label example.* convention. Written out here rather than reusing
-# validate.py's RESERVED_TLDS, same reason as the two lists above. Note that
+# pipeline/validate.py's RESERVED_TLDS, same reason as the two lists above. Note that
 # example.de is NOT RFC 2606 reserved (that RFC names only example.com/.net/
 # .org); it is an ordinary ccTLD registration following the convention.
 RESERVED_SUFFIXES = {"example", "invalid", "local", "localhost", "test"}

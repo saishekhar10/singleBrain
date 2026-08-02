@@ -46,16 +46,27 @@ A pipeline that reads fixtures/inbound_leads.csv and outputs a decision
   Its claims are transcribed by hand on purpose: never make it parse MILESTONES.md,
   since a parser would agree with the document by construction and could not catch
   the transcription drift it exists to catch.
-- Tests: one file per stage, test_<stage>.py at the repo root, stdlib unittest, no
-  pytest. Run `python3 -m unittest discover -p "test_*.py" -v`.
+- Tests: one file per stage, `tests/test_<stage>.py`, stdlib unittest, no pytest.
+  Run `python3 -m unittest discover -p "test_*.py" -v` from the repo root.
+  **Never delete `tests/__init__.py`.** Without it that command reports
+  `Ran 0 tests ... OK` and exits 0, so the suite passes while running nothing
+  (verified on Python 3.11.4, 2026-08-01).
 - Stages are plain functions called in sequence from a single entry point, per
-  SPEC.md Section 2, never framework components. One module per stage at the repo
-  root (ingest.py, validate.py, sanitize.py, dedup.py), constants.py holding only
-  the vocabulary stages share, and triage.py wiring them together and owning the
-  `__main__` smoke run. Flat files, no package directory, no __init__.py.
-  Corrected 2026-08-01 alongside SPEC.md Section 2's matching line: this bullet
-  read "from one script" until triage.py was split. Only where the functions live
-  changed; the rule itself did not. Ingest, Validate, Sanitize, and Dedup (M1-M4)
+  SPEC.md Section 2, never framework components. One module per stage in
+  `pipeline/` (ingest, validate, sanitize, dedup, with judge and guardrails to
+  come), `pipeline/constants.py` holding only the vocabulary stages share, and
+  `triage.py` at the repo root wiring them together and owning the `__main__`
+  smoke run. Imports inside `pipeline/` are absolute (`from pipeline.constants
+  import OK`), so a module reads the same from tests, from triage.py, or from
+  scripts/. Corrected twice on 2026-08-01, alongside SPEC.md Section 2's matching
+  line: first from "one script" when triage.py was split into modules, then from
+  flat root files when those modules moved into `pipeline/` and the tests into
+  `tests/`. Only where the functions live changed; the rule itself did not.
+- **Layout is final through M7.** M5 adds `pipeline/judge.py` (the LLM call and
+  response parsing) and `pipeline/prompts.py` (prompt template text only); M6
+  adds `pipeline/guardrails.py`; M7 adds `pipeline/output.py` for decisions.csv
+  and run_log.json. No further layout changes without a forcing reason, and
+  "would be tidier" is not one. Ingest, Validate, Sanitize, and Dedup (M1-M4)
   are built; Judge and Guardrails follow.
 
 ## Documented design decisions

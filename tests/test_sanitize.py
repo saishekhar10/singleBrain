@@ -15,18 +15,18 @@ import re
 import unittest
 from pathlib import Path
 
-import dedup as dedup_module
-import ingest as ingest_module
-import sanitize as sanitize_module
-import validate as validate_module
-from constants import (
+import pipeline.dedup as dedup_module
+import pipeline.ingest as ingest_module
+import pipeline.sanitize as sanitize_module
+import pipeline.validate as validate_module
+from pipeline.constants import (
     CONTENT_CATEGORIES,
     INJECTION,
     SECURITY_THREAT,
     SENSITIVE_CONTENT,
 )
-from ingest import ingest
-from sanitize import (
+from pipeline.ingest import ingest
+from pipeline.sanitize import (
     SCANNED_FIELDS,
     detect_injection,
     detect_security_threat,
@@ -39,7 +39,8 @@ from sanitize import (
 # addition here rather than something the scan silently misses.
 STAGE_MODULES = (ingest_module, validate_module, sanitize_module, dedup_module)
 
-FIXTURE = Path(__file__).parent / "fixtures" / "inbound_leads.csv"
+FIXTURE = (Path(__file__).resolve().parent.parent
+           / "fixtures" / "inbound_leads.csv")
 
 # Transcribed from MILESTONES.md's M3 fenced blocks. Kept verbatim so a change
 # to the criteria shows up here as a diff rather than as silent drift.

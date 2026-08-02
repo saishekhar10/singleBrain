@@ -19,9 +19,9 @@ import copy
 import unittest
 from pathlib import Path
 
-from constants import MALFORMED, MISSING, OK, UNPARSEABLE
-from ingest import ingest
-from validate import (
+from pipeline.constants import MALFORMED, MISSING, OK, UNPARSEABLE
+from pipeline.ingest import ingest
+from pipeline.validate import (
     CRITERIA_FIELDS,
     DOMAIN_SIGNALS,
     email_domain_is_personal_provider,
@@ -35,7 +35,8 @@ from validate import (
     validate_website,
 )
 
-FIXTURE = Path(__file__).parent / "fixtures" / "inbound_leads.csv"
+FIXTURE = (Path(__file__).resolve().parent.parent
+           / "fixtures" / "inbound_leads.csv")
 
 ALL_LEAD_IDS = [f"L-{n:03d}" for n in range(1, 21)]
 

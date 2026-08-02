@@ -20,13 +20,14 @@ import inspect
 import unittest
 from pathlib import Path
 
-import dedup as dedup_module
-from constants import MALFORMED, MISSING, OK, UNPARSEABLE
-from dedup import dedup, dedup_stage_trace
-from ingest import ingest
-from validate import validate
+import pipeline.dedup as dedup_module
+from pipeline.constants import MALFORMED, MISSING, OK, UNPARSEABLE
+from pipeline.dedup import dedup, dedup_stage_trace
+from pipeline.ingest import ingest
+from pipeline.validate import validate
 
-FIXTURE = Path(__file__).parent / "fixtures" / "inbound_leads.csv"
+FIXTURE = (Path(__file__).resolve().parent.parent
+           / "fixtures" / "inbound_leads.csv")
 
 # The fixture's two duplicate pairs, first occurrence first. Transcribed from
 # MILESTONES.md's M4 criteria; scripts/verify_milestones.py re-derives both the

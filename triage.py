@@ -16,11 +16,11 @@ Run it:  python3 triage.py [path-to-csv]
 
 import sys
 
-from constants import OK
-from dedup import dedup
-from ingest import ingest
-from sanitize import sanitize
-from validate import DOMAIN_SIGNALS, validate
+from pipeline.constants import OK
+from pipeline.dedup import dedup
+from pipeline.ingest import ingest
+from pipeline.sanitize import sanitize
+from pipeline.validate import DOMAIN_SIGNALS, validate
 
 DEFAULT_FIXTURE = "fixtures/inbound_leads.csv"
 

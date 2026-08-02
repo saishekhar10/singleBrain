@@ -11,9 +11,10 @@ is deliberately left untested at M1 rather than tested against a fake file.
 import unittest
 from pathlib import Path
 
-from ingest import SCHEMA, ingest
+from pipeline.ingest import SCHEMA, ingest
 
-FIXTURE = Path(__file__).parent / "fixtures" / "inbound_leads.csv"
+FIXTURE = (Path(__file__).resolve().parent.parent
+           / "fixtures" / "inbound_leads.csv")
 
 EXPECTED_LEAD_IDS = [f"L-{n:03d}" for n in range(1, 21)]
 

@@ -28,17 +28,18 @@ that imports four stage modules and wires them in sequence.
 
 | File | Lines | Holds |
 |---|---|---|
-| `ingest.py` | 48 | `SCHEMA`, `EXTRA_FIELDS_KEY`, `ingest()` |
-| `constants.py` | 29 | the four status words, the three category names, `CONTENT_CATEGORIES` |
-| `validate.py` | 330 | M2, plus `DOMAIN_SIGNALS` |
-| `sanitize.py` | 274 | M3 |
-| `dedup.py` | 108 | M4 |
+| `pipeline/ingest.py` | 48 | `SCHEMA`, `EXTRA_FIELDS_KEY`, `ingest()` |
+| `pipeline/constants.py` | 29 | the four status words, the three category names, `CONTENT_CATEGORIES` |
+| `pipeline/validate.py` | 330 | M2, plus `DOMAIN_SIGNALS` |
+| `pipeline/sanitize.py` | 274 | M3 |
+| `pipeline/dedup.py` | 108 | M4 |
 | `triage.py` | 64 | imports, `DEFAULT_FIXTURE`, the `__main__` smoke run |
 
-Flat at the repo root, no package directory, no `__init__.py`, no import
-cycles: `validate` imports `ingest`, everything imports `constants`, `triage`
-imports the four stages. `python3 triage.py fixtures/inbound_leads.csv` is
-unchanged, and so is the `__main__` block's body.
+No import cycles: `validate` imports `ingest`, everything imports `constants`,
+`triage` imports the four stages. `python3 triage.py fixtures/inbound_leads.csv`
+is unchanged, and so is the `__main__` block's body. The modules landed at the
+repo root first and moved into `pipeline/` later the same day; see the folder
+move below.
 
 **Why `constants.py` exists at all**, since a file of seven strings needs a
 reason under the no-unnecessary-abstraction rule: SPEC.md Section 6 has M6
@@ -91,6 +92,69 @@ same time and was already correct, so it was left alone.
 
 ---
 
+## Folder move: `pipeline/` and `tests/`, 2026-08-01
+
+Second reorganization the same day, and the last one: the five stage modules
+moved from the repo root into `pipeline/`, the four test files into `tests/`,
+and `triage.py` stayed at the root as the entry point. Same acceptance bar as
+the module split, same result.
+
+**Layout is now final through M7**, recorded in CLAUDE.md as a rule rather than
+an intention. M5 adds `pipeline/judge.py` and `pipeline/prompts.py`, M6 adds
+`pipeline/guardrails.py`, M7 adds `pipeline/output.py`. No further layout
+changes without a forcing reason; "would be tidier" does not count. Two
+reshuffles in one day is already the cost this rule exists to stop paying,
+and SPEC.md Section 2's Non-Goals line has now been corrected twice within it.
+
+**Where M5's prompt text will live, decided now so the layout question is
+closed before the milestone starts:** `pipeline/prompts.py`, holding the
+template text and the assembly that wraps lead content in its labeled data
+boundary, with `pipeline/judge.py` holding the call and the response parsing.
+Split rather than inlined for a specific reason: M5's acceptance criteria
+require the rubric to be checked *by reading the prompt text* (all three
+QUALIFY criteria, all six ESCALATE triggers, the REJECT test, both NURTURE
+sub-cases, the duplicate rule), and a test that reads one small module is a
+different thing from one that greps a long string embedded in call logic. It
+also keeps CLAUDE.md's rule against hardcoded logic in the prompt auditable in
+one place. The constraint that comes with it: `prompts.py` holds template text
+and boundary assembly only, never a decision rule, or it has become the
+judgment-in-hardcoded-logic problem in a new location.
+
+**`tests/__init__.py` is load-bearing, not boilerplate** [observed, Python
+3.11.4, 2026-08-01]. Without it, the documented `python3 -m unittest discover
+-p "test_*.py" -v` reports `Ran 0 tests in 0.000s`, `OK`, exit 0. The suite
+would pass while running nothing, which is indistinguishable from success at a
+glance and would have hidden every regression this repo tests for. `-s tests
+-t .` does not work around it either: `ImportError: Start directory is not
+importable`. Checked before the move rather than discovered after, and the
+reason is written into the file's own docstring and into CLAUDE.md, since the
+failure mode is silent and the fix is a file that looks deletable.
+
+**Acceptance bar, matched** [observed, 2026-08-01]:
+
+| | Baseline (pre-split) | After folder move |
+|---|---|---|
+| `unittest discover -v` | 110 tests, 110 `ok`, exit 0 | 110 tests, 110 `ok`, exit 0 |
+| `scripts/verify_milestones.py` | 55/55, 0 discrepancies, 1 note, exit 0 | identical |
+| `python3 triage.py fixtures/...` | 20 rows, exit 0 | identical |
+| anti-overfit pattern scan | 27 patterns | 27, same names |
+
+Diffed as full verbose output against the same saved baseline the module split
+used, normalized only for the two expected identifier-prefix changes: test ids
+gain `tests.`, and scanned pattern names gain `pipeline.`. Verifier and smoke
+output needed no normalization and matched byte for byte. The pattern *names*,
+not just the count, were compared against the pre-split `triage.py` again, so
+Validate's three are still covered.
+
+**Reference updates:** absolute imports inside `pipeline/` (`from
+pipeline.constants import OK`), so a module reads the same whether imported by
+the tests, `triage.py`, or `scripts/verify_milestones.py`; the verifier's
+import repointed; and the fixture path in all four test files changed from
+`Path(__file__).parent` to `.resolve().parent.parent`, which is the one edit
+that would have broken every test at once had it been missed.
+
+---
+
 ## M4 Dedup: rules signed off 2026-08-01
 
 Five rules settled. MILESTONES.md's M4 section was rewritten to state them as
@@ -138,15 +202,15 @@ recorded under "Carried into M5" below, which is its durable home.
 
 ## M4: Dedup
 
-**Files:** `dedup.py` (`_match_key`, `dedup`, `dedup_stage_trace`), a `linked=`
-column on `triage.py`'s smoke run, `test_dedup.py` (33 tests, stdlib
+**Files:** `pipeline/dedup.py` (`_match_key`, `dedup`, `dedup_stage_trace`), a `linked=`
+column on `triage.py`'s smoke run, `tests/test_dedup.py` (33 tests, stdlib
 `unittest`). No new dependency; `dedup` is plain dict-and-list work.
 
 **Run it:**
 
 ```
 python3 triage.py                      # ingest + validate + sanitize + dedup
-python3 -m unittest test_dedup -v
+python3 -m unittest tests.test_dedup -v
 ```
 
 **What it does:** computes a match key per row from `email` (rules 1 and 2),
@@ -307,18 +371,18 @@ carries no presumption either way.
 
 ## M3: Sanitize
 
-**Files:** `sanitize.py` (`SCANNED_FIELDS`, the rule patterns,
+**Files:** `pipeline/sanitize.py` (`SCANNED_FIELDS`, the rule patterns,
 `detect_injection`, `detect_security_threat`, `detect_sensitive_content`,
-`sanitize`), `constants.py` (the three category names and
+`sanitize`), `pipeline/constants.py` (the three category names and
 `CONTENT_CATEGORIES`), a `content=` column on `triage.py`'s smoke run,
-`test_sanitize.py` (37 tests, stdlib `unittest`). No new dependency; `re` is
+`tests/test_sanitize.py` (37 tests, stdlib `unittest`). No new dependency; `re` is
 stdlib and was already imported for M2.
 
 **Run it:**
 
 ```
 python3 triage.py                      # ingest + validate + sanitize, all 20 rows
-python3 -m unittest test_sanitize -v
+python3 -m unittest tests.test_sanitize -v
 ```
 
 **What it does:** runs all three detectors over `name`, `company`, and
@@ -551,18 +615,18 @@ in the verifier would blur what that script is for.
 
 ## M2: Validate
 
-**Files:** `validate.py` (`CRITERIA_FIELDS`, `DOMAIN_SIGNALS`, three domain
+**Files:** `pipeline/validate.py` (`CRITERIA_FIELDS`, `DOMAIN_SIGNALS`, three domain
 lists, five per-field checkers, `validate_budget`, the three domain-signal
 functions over one `_email_domain` helper, `check_submitted_at`, `validate()`),
-`constants.py` (the four status constants), an extended `__main__` smoke run in
-`triage.py`, `test_validate.py` (33 tests, stdlib `unittest`). No new
+`pipeline/constants.py` (the four status constants), an extended `__main__` smoke run in
+`triage.py`, `tests/test_validate.py` (33 tests, stdlib `unittest`). No new
 dependency; `re`, `unicodedata`, and `datetime` are stdlib.
 
 **Run it:**
 
 ```
 python3 triage.py                      # ingest + validate, all 20 rows
-python3 -m unittest test_validate -v
+python3 -m unittest tests.test_validate -v
 python3 -m unittest discover -p "test_*.py" -v
 ```
 
@@ -615,7 +679,7 @@ and nothing in the script covered that, so the 17 distinct domains are now
 transcribed by hand and re-derived from the file, alongside per-signal checks.
 Every list there is hand-written, including a second copy of the placeholder
 rule: importing `PERSONAL_EMAIL_DOMAINS`, `DISPOSABLE_EMAIL_DOMAINS`, or
-`RESERVED_TLDS` from `validate.py` (`triage.py` before the 2026-08-01 split)
+`RESERVED_TLDS` from `pipeline/validate.py` (`triage.py` before the 2026-08-01 split)
 would make the script agree with the code by construction, which is the same
 failure as parsing MILESTONES.md.
 
@@ -652,8 +716,8 @@ here for the same reason M1 left its header-mismatch `ValueError` untested.
 
 ## M1: Ingest
 
-**Files:** `ingest.py` (`SCHEMA`, `EXTRA_FIELDS_KEY`, `ingest()`), the
-`__main__` smoke run in `triage.py`, `test_ingest.py` (7 tests, stdlib
+**Files:** `pipeline/ingest.py` (`SCHEMA`, `EXTRA_FIELDS_KEY`, `ingest()`), the
+`__main__` smoke run in `triage.py`, `tests/test_ingest.py` (7 tests, stdlib
 `unittest`).
 
 **Run it:**
@@ -661,7 +725,7 @@ here for the same reason M1 left its header-mismatch `ValueError` untested.
 ```
 python3 triage.py                      # defaults to fixtures/inbound_leads.csv
 python3 triage.py <path-to-csv>
-python3 -m unittest test_ingest -v
+python3 -m unittest tests.test_ingest -v
 ```
 
 **What it does:** reads the CSV into a list of dicts of raw strings, in file

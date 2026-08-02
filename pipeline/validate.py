@@ -10,8 +10,8 @@ import re
 import unicodedata
 from datetime import datetime
 
-from constants import MALFORMED, MISSING, OK, UNPARSEABLE
-from ingest import EXTRA_FIELDS_KEY
+from pipeline.constants import MALFORMED, MISSING, OK, UNPARSEABLE
+from pipeline.ingest import EXTRA_FIELDS_KEY
 
 # The three email-domain signals validate() reports, in output order. Used by
 # the smoke run in triage.py and by M5 later, so the names live in one place.

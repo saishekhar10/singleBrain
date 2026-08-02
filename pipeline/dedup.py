@@ -5,7 +5,7 @@ every row still reaches the Judge. The five rules this implements are stated in
 MILESTONES.md's M4 section.
 """
 
-from constants import OK
+from pipeline.constants import OK
 
 def _match_key(raw, status):
     """The value two rows must share to be linked, or None for no key at all.

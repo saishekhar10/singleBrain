@@ -7,7 +7,7 @@ exists to preserve. Detecting anything never skips the Judge.
 
 import re
 
-from constants import CONTENT_CATEGORIES, INJECTION, SECURITY_THREAT, SENSITIVE_CONTENT
+from pipeline.constants import CONTENT_CATEGORIES, INJECTION, SECURITY_THREAT, SENSITIVE_CONTENT
 
 # Settled 2026-07-31: message is where this fixture's adversarial content sits,
 # but M5's prompt carries name and company too, so all three are attack surface.
